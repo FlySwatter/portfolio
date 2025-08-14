@@ -1,0 +1,34 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  imageName: 'sample-helm-app'
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildPush
+    steps:
+    - task: Docker@2
+      inputs:
+        command: buildAndPush
+        repository: $(imageName)
+        Dockerfile: helm-chart/Dockerfile
+        containerRegistry: $(dockerServiceConnection)
+        tags: |
+          $(Build.BuildId)
+
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - job: HelmDeploy
+    steps:
+    - task: HelmInstaller@1
+      inputs:
+        helmVersionToInstall: 'latest'
+    - script: |
+        helm upgrade --install sample ./helm-chart           --set image.repository=$(containerRegistry)/$(imageName)           --set image.tag=$(Build.BuildId)
+      displayName: 'Helm upgrade/install'

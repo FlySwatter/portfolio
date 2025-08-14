@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: kustomize-sample }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: kustomize-sample } }
+  template:
+    metadata: { labels: { app: kustomize-sample } }
+    spec:
+      containers:
+      - name: web
+        image: nginx:alpine
+        ports: [{ containerPort: 80 }]

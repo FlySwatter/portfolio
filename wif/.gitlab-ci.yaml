@@ -1,0 +1,72 @@
+# .gitlab-ci.yml
+# This GitLab CI pipeline deploys Terraform configurations for OpenShift WIF across multiple GCP environments (lab, ppd, prod, security).
+# Assumptions:
+# - A GitLab variable GCP_SERVICE_ACCOUNT_KEY is set with the JSON key for a GCP service account that has access to all relevant projects and the GCS backend bucket.
+# - The service account must have necessary IAM roles (e.g., Owner or specific roles for Compute, IAM, Storage) in each GCP project.
+# - Pipeline runs on merge requests for validation/planning, and on main branch for applies (manual trigger for safety).
+# - Environments are defined in terraform/envs/<env> directories.
+# - Add more environments to the matrix as needed.
+
+stages:
+  - validate
+  - plan
+  - apply
+
+variables:
+  TF_ROOT: "terraform/envs"
+  TF_BACKEND_BUCKET: "my-terraform-state" #change to match bucket
+
+.default-terraform-job:
+  image: hashicorp/terraform:latest
+  before_script:
+    - echo "$GCP_SERVICE_ACCOUNT_KEY" > gcp_key.json
+    - export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp_key.json
+    - cd ${TF_ROOT}/${CI_JOB_ENV}
+    - terraform version
+  script:
+    - terraform init -backend-config="bucket=${TF_BACKEND_BUCKET}" -backend-config="prefix=wif/${CI_JOB_ENV}"
+
+terraform-validate:
+  stage: validate
+  parallel:
+    matrix:
+      - CI_JOB_ENV: ["lab", "ppd", "prod", "security"]
+  extends: .default-terraform-job
+  script:
+    - !reference [.default-terraform-job, script]
+    - terraform validate
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "main"'
+
+terraform-plan:
+  stage: plan
+  parallel:
+    matrix:
+      - CI_JOB_ENV: ["lab", "ppd", "prod", "security"]
+  extends: .default-terraform-job
+  script:
+    - !reference [.default-terraform-job, script]
+    - terraform plan -out=plan.tfplan
+  artifacts:
+    paths:
+      - ${TF_ROOT}/${CI_JOB_ENV}/plan.tfplan
+    expire_in: 1 day
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "main"'
+
+terraform-apply:
+  stage: apply
+  parallel:
+    matrix:
+      - CI_JOB_ENV: ["lab", "ppd", "prod", "security"]
+  extends: .default-terraform-job
+  script:
+    - !reference [.default-terraform-job, script]
+    - terraform apply -auto-approve plan.tfplan
+  dependencies:
+    - terraform-plan
+  when: manual  # Manual trigger for safety; auto-approve only in non-prod if desired
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  environment:
+    name: ${CI_JOB_ENV}

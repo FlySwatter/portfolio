@@ -1,0 +1,12 @@
+name: ArgoCD Sync
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Print notice
+      run: echo "In a real setup, call ArgoCD CLI or API to sync application."
